@@ -1,0 +1,17 @@
+{
+  "name": "ZaGastos",
+  "short_name": "ZaGastos",
+  "description": "Controle financeiro do casal",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f2ef",
+  "theme_color": "#3d8b6e",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64",
+      "type": "image/x-icon"
+    }
+  ]
+}
