@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
-import { Check, Download, Pencil, Plus, Trash2, Upload, Wallet } from 'lucide-react';
+import { Check, Download, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, parseISO, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -30,12 +30,12 @@ export function Dashboard() {
     getCardExpenses, toggleBillPaid, creditCardBills,
   } = useFinance();
 
-  const fixed    = getMonthFixed();
-  const incomes  = getMonthIncome();
-  const budgets  = getMonthBudgets();
+  const fixed = getMonthFixed();
+  const incomes = getMonthIncome();
+  const budgets = getMonthBudgets();
   const expenses = getMonthExpenses();
   const carryover = getCarryover();
-  const monthKey  = format(currentMonth, 'yyyy-MM');
+  const monthKey = format(currentMonth, 'yyyy-MM');
   const nextMonthKey = format(addMonths(currentMonth, 1), 'yyyy-MM');
 
   const creditAccounts = accounts.filter(a => a.type === 'credit' && a.active);
@@ -65,7 +65,8 @@ export function Dashboard() {
 
   const disponivelParaAvulsos = orcamento.totalIncome + carryover - orcamento.totalFixed - orcamento.totalBudgetCeilings - totalCardBills;
 
-  const [summaryTab, setSummaryTab]   = useState<'orcamento' | 'real'>('orcamento');
+  const [summaryTab, setSummaryTab] = useState<'orcamento' | 'real'>('orcamento');
+  const [showDetails, setShowDetails] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [showAddIncome, setShowAddIncome] = useState(false);
   const isReal = summaryTab === 'real';
@@ -77,9 +78,9 @@ export function Dashboard() {
     return acc?.type === 'credit';
   });
 
-  const displayedFixed   = isReal ? fixed.filter(f => f.status === 'paid') : fixed;
+  const displayedFixed = isReal ? fixed.filter(f => f.status === 'paid') : fixed;
   const displayedIncomes = isReal ? incomes.filter(i => i.status === 'received') : incomes;
-  const fixedPaidCount   = fixed.filter(f => f.status === 'paid').length;
+  const fixedPaidCount = fixed.filter(f => f.status === 'paid').length;
 
   // Sort fixed: pending first (by date), then paid (by date)
   const sortedFixed = [...displayedFixed].sort((a, b) => {
@@ -110,82 +111,128 @@ export function Dashboard() {
             <TabsTrigger value="real" className="flex-1 text-primary-foreground/70 data-[state=active]:text-primary-foreground data-[state=active]:bg-primary-foreground/20">Real</TabsTrigger>
           </TabsList>
 
+          {/* ── ORÇAMENTO ── */}
           <TabsContent value="orcamento" className="mt-0">
             <CardContent className="p-5 pt-3 space-y-2">
+
+              {/* Modo simples */}
               <div className="flex justify-between text-sm">
                 <span className="opacity-80">Entradas</span>
                 <span className="font-bold">{formatCurrency(orcamento.totalIncome)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="opacity-80">(-) Gastos Fixos</span>
-                <span className="font-bold">{formatCurrency(orcamento.totalFixed)}</span>
+                <span className="opacity-80">(-) Compromissos</span>
+                <span className="font-bold">
+                  {formatCurrency(orcamento.totalFixed + orcamento.totalBudgetCeilings + totalCardBills)}
+                </span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="opacity-80">(-) Orçamentos</span>
-                <span className="font-bold">{formatCurrency(orcamento.totalBudgetCeilings)}</span>
-              </div>
-              {totalCardBills > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="opacity-80">(-) Faturas de Cartão</span>
-                  <span className="font-bold">{formatCurrency(totalCardBills)}</span>
+
+              {/* Modo expandido */}
+              {showDetails && (
+                <div className="pl-3 border-l border-primary-foreground/20 space-y-1.5 py-1">
+                  <div className="flex justify-between text-xs opacity-80">
+                    <span>Gastos Fixos</span>
+                    <span>{formatCurrency(orcamento.totalFixed)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs opacity-80">
+                    <span>Orçamentos</span>
+                    <span>{formatCurrency(orcamento.totalBudgetCeilings)}</span>
+                  </div>
+                  {totalCardBills > 0 && (
+                    <div className="flex justify-between text-xs opacity-80">
+                      <span>Faturas de Cartão</span>
+                      <span>{formatCurrency(totalCardBills)}</span>
+                    </div>
+                  )}
+                  {orcamento.totalLooseDebit > 0 && (
+                    <div className="flex justify-between text-xs opacity-80">
+                      <span>Gastos no débito</span>
+                      <span>{formatCurrency(orcamento.totalLooseDebit)}</span>
+                    </div>
+                  )}
                 </div>
               )}
+
               {carryover !== 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="opacity-80">{carryover > 0 ? '(+)' : '(-)'} Mês anterior</span>
                   <span className="font-bold">{formatCurrency(Math.abs(carryover))}</span>
                 </div>
               )}
-              <div className="border-t border-primary-foreground/20 pt-2 flex justify-between text-sm">
-                <span className="font-medium">Disponível p/ Avulsos</span>
-                <span className="font-bold text-base">{formatCurrency(disponivelParaAvulsos)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="opacity-80">(-) Avulsos débito</span>
-                <span className="font-bold">{formatCurrency(orcamento.totalLooseDebit)}</span>
-              </div>
+
               <div className="border-t border-primary-foreground/20 pt-2 flex justify-between">
-                <span className="font-bold">Saldo Restante</span>
+                <span className="font-bold">Disponível</span>
                 <span className={cn('font-bold text-lg', orcamento.disponivel < 0 && 'text-destructive-foreground opacity-80')}>
                   {formatCurrency(orcamento.disponivel)}
                 </span>
               </div>
+
+              {/* Botão ver detalhes */}
+              <button
+                onClick={() => setShowDetails(v => !v)}
+                className="w-full text-center text-xs opacity-50 hover:opacity-80 pt-1 transition-opacity"
+              >
+                {showDetails ? '▲ ocultar detalhes' : '▼ ver detalhes'}
+              </button>
             </CardContent>
           </TabsContent>
 
+          {/* ── REAL ── */}
           <TabsContent value="real" className="mt-0">
             <CardContent className="p-5 pt-3 space-y-2">
+
+              {/* Modo simples */}
               <div className="flex justify-between text-sm">
                 <span className="opacity-80">Recebido</span>
                 <span className="font-bold">{formatCurrency(real.receivedIncome)}</span>
               </div>
+              <div className="flex justify-between text-sm">
+                <span className="opacity-80">(-) Compromissos pagos</span>
+                <span className="font-bold">
+                  {formatCurrency(real.fixedPaid + real.budgetSpentDebitPaid + real.looseDebitPaid + real.billsPaid + real.budgetSpentCardPaid)}
+                </span>
+              </div>
+
+              {/* Modo expandido */}
+              {showDetails && (
+                <div className="pl-3 border-l border-primary-foreground/20 space-y-1.5 py-1">
+                  {real.fixedPaid > 0 && (
+                    <div className="flex justify-between text-xs opacity-80">
+                      <span>Fixos pagos</span>
+                      <span>{formatCurrency(real.fixedPaid)}</span>
+                    </div>
+                  )}
+                  {(real.budgetSpentDebitPaid + real.looseDebitPaid) > 0 && (
+                    <div className="flex justify-between text-xs opacity-80">
+                      <span>Gastos no débito</span>
+                      <span>{formatCurrency(real.budgetSpentDebitPaid + real.looseDebitPaid)}</span>
+                    </div>
+                  )}
+                  {(real.billsPaid + real.budgetSpentCardPaid) > 0 && (
+                    <div className="flex justify-between text-xs opacity-80">
+                      <span>Faturas pagas</span>
+                      <span>{formatCurrency(real.billsPaid + real.budgetSpentCardPaid)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {carryover !== 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="opacity-80">{carryover > 0 ? '(+)' : '(-)'} Mês anterior</span>
                   <span className="font-bold">{formatCurrency(Math.abs(carryover))}</span>
                 </div>
               )}
-              <div className="flex justify-between text-sm">
-                <span className="opacity-80">(-) Fixos pagos</span>
-                <span className="font-bold">{formatCurrency(real.fixedPaid)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="opacity-80">(-) Avulsos + Orçamentos</span>
-                <span className="font-bold">{formatCurrency(real.budgetSpentDebitPaid + real.looseDebitPaid)}</span>
-              </div>
-              {(real.billsPaid + real.budgetSpentCardPaid) > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="opacity-80">(-) Faturas pagas</span>
-                  <span className="font-bold">{formatCurrency(real.billsPaid + real.budgetSpentCardPaid)}</span>
-                </div>
-              )}
+
               <div className="border-t border-primary-foreground/20 pt-2 flex justify-between">
                 <span className="font-bold">Saldo na conta</span>
                 <span className={cn('font-bold text-lg', real.saldoNaConta < 0 && 'text-destructive-foreground opacity-80')}>
                   {formatCurrency(real.saldoNaConta)}
                 </span>
               </div>
-              {(real.fixedPending > 0 || real.pendingIncome > 0 || billRows.some(b => b.bill.status === 'pending' && b.total > 0)) && (
+
+              {/* Pendências — só no modo expandido */}
+              {showDetails && (real.fixedPending > 0 || real.pendingIncome > 0 || billRows.some(b => b.bill.status === 'pending' && b.total > 0)) && (
                 <div className="border-t border-primary-foreground/10 pt-2 space-y-1">
                   {real.fixedPending > 0 && (
                     <div className="flex justify-between text-xs opacity-70">
@@ -207,17 +254,18 @@ export function Dashboard() {
                   )}
                 </div>
               )}
+
+              {/* Botão ver detalhes */}
+              <button
+                onClick={() => setShowDetails(v => !v)}
+                className="w-full text-center text-xs opacity-50 hover:opacity-80 pt-1 transition-opacity"
+              >
+                {showDetails ? '▲ ocultar detalhes' : '▼ ver detalhes'}
+              </button>
             </CardContent>
           </TabsContent>
         </Tabs>
       </Card>
-
-      {/* Carryover (read-only) */}
-      <div className="flex items-center gap-2">
-        <Wallet className="h-4 w-4 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground flex-1">Saldo mês anterior:</span>
-        <span className="text-xs font-medium text-primary">{formatCurrency(carryover)}</span>
-      </div>
 
       {/* Credit Card Bills */}
       {(billRows.length > 0 || creditAccounts.length > 0) && (
@@ -231,10 +279,10 @@ export function Dashboard() {
               // ── PRÓXIMA FATURA (fatura atual paga) ──────────────────────
               if (isPaid) {
                 const nextExpenses = getCardExpenses(account.id, nextMonthKey);
-                const nextTotal    = nextExpenses.reduce((s, e) => s + e.amount, 0);
-                const nextBill     = creditCardBills.find(b => b.accountId === account.id && b.month === nextMonthKey);
+                const nextTotal = nextExpenses.reduce((s, e) => s + e.amount, 0);
+                const nextBill = creditCardBills.find(b => b.accountId === account.id && b.month === nextMonthKey);
                 const nextPrevBalance = nextBill?.previousBalance ?? 0;
-                const nextGrandTotal  = nextTotal + nextPrevBalance;
+                const nextGrandTotal = nextTotal + nextPrevBalance;
 
                 return (
                   <Card
@@ -506,21 +554,21 @@ function FixedExpenseRow({
               {item.description}
             </p>
           </div>
-        <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0 mt-0.5">
-          {item.dueDate && (
-            <span style={{ fontSize: '0.68rem' }} className="text-muted-foreground leading-tight whitespace-nowrap">
-              {format(parseISO(item.dueDate), 'dd MMM', { locale: ptBR })} ·
+          <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0 mt-0.5">
+            {item.dueDate && (
+              <span style={{ fontSize: '0.68rem' }} className="text-muted-foreground leading-tight whitespace-nowrap">
+                {format(parseISO(item.dueDate), 'dd MMM', { locale: ptBR })} ·
+              </span>
+            )}
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              Estimado: {formatCurrency(item.estimatedAmount)}
             </span>
-          )}
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            Estimado: {formatCurrency(item.estimatedAmount)}
-          </span>
-          {diff !== null && diff !== 0 && (
-            <span className={cn('text-xs font-medium whitespace-nowrap', diff > 0 ? 'text-expense' : 'text-income')}>
-              {diff > 0 ? '+' : ''}{formatCurrency(diff)}
-            </span>
-          )}
-        </div>  
+            {diff !== null && diff !== 0 && (
+              <span className={cn('text-xs font-medium whitespace-nowrap', diff > 0 ? 'text-expense' : 'text-income')}>
+                {diff > 0 ? '+' : ''}{formatCurrency(diff)}
+              </span>
+            )}
+          </div>
         </div>
         <div className="text-right shrink-0">
           {item.status === 'paid'
