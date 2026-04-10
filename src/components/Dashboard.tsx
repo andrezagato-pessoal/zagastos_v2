@@ -506,19 +506,21 @@ function FixedExpenseRow({
               {item.description}
             </p>
           </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            {item.dueDate && (
-              <span style={{ fontSize: '0.68rem' }} className="text-muted-foreground leading-tight">
-                {format(parseISO(item.dueDate), 'dd MMM', { locale: ptBR })} ·
-              </span>
-            )}
-            <span className="text-xs text-muted-foreground">Estimado: {formatCurrency(item.estimatedAmount)}</span>
-            {diff !== null && diff !== 0 && (
-              <span className={cn('text-xs font-medium', diff > 0 ? 'text-expense' : 'text-income')}>
-                {diff > 0 ? '+' : ''}{formatCurrency(diff)}
-              </span>
-            )}
-          </div>
+        <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0 mt-0.5">
+          {item.dueDate && (
+            <span style={{ fontSize: '0.68rem' }} className="text-muted-foreground leading-tight whitespace-nowrap">
+              {format(parseISO(item.dueDate), 'dd MMM', { locale: ptBR })} ·
+            </span>
+          )}
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            Estimado: {formatCurrency(item.estimatedAmount)}
+          </span>
+          {diff !== null && diff !== 0 && (
+            <span className={cn('text-xs font-medium whitespace-nowrap', diff > 0 ? 'text-expense' : 'text-income')}>
+              {diff > 0 ? '+' : ''}{formatCurrency(diff)}
+            </span>
+          )}
+        </div>  
         </div>
         <div className="text-right shrink-0">
           {item.status === 'paid'
