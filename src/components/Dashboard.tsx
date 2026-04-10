@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
 import {
   formatCurrency, calcOrcamento, calcReal,
-  getBudgetCategoryIds, splitByBudget, getBudgetCategorySpent, exportMonthToCsv,
+  exportMonthToCsv,
 } from '@/types/finance-utils';
 import { MonthSelector } from './MonthSelector';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -14,14 +14,16 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Check, Download, Pencil, Plus, Trash2, Upload, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { format, parseISO, addMonths } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { FixedExpense } from '@/types/finance';
 import { CsvImporter } from './CsvImporter';
 
 export function Dashboard() {
   const {
     getMonthFixed, getMonthIncome, getMonthBudgets, getMonthExpenses, getMonthBills,
-    markFixedPaid, updateFixedExpense, deleteFixedExpense,
+    markFixedPaid, deleteFixedExpense,
+    updateMonthlyBudget, deleteMonthlyBudget,
     addIncome, deleteIncome, markIncomeReceived,
     importTemplate, getCarryover,
     categories, accounts, currentMonth,
@@ -34,10 +36,11 @@ export function Dashboard() {
   const expenses = getMonthExpenses();
   const carryover = getCarryover();
   const monthKey  = format(currentMonth, 'yyyy-MM');
+  const nextMonthKey = format(addMonths(currentMonth, 1), 'yyyy-MM');
 
   const creditAccounts = accounts.filter(a => a.type === 'credit' && a.active);
 
-  // Bill data
+  // Bill data (current month)
   const monthBills = getMonthBills();
   const billRows = monthBills.map(bill => {
     const account = creditAccounts.find(a => a.id === bill.accountId);
@@ -60,17 +63,6 @@ export function Dashboard() {
   const orcamento = calcOrcamento(incomes, fixed, budgets, expenses, accounts, creditCardBills.filter(b => b.month === monthKey), carryover);
   const real = calcReal(incomes, fixed, budgets, expenses, accounts, paidBillsForCalc, carryover);
 
-  const budgetCatIds = getBudgetCategoryIds(budgets);
-  const { loose } = splitByBudget(expenses, budgetCatIds);
-  const looseDebitByCategory: Record<string, number> = {};
-  loose.filter(e => {
-    const acc = accounts.find(a => a.id === e.accountId);
-    return acc?.type === 'checking';
-  }).forEach(e => {
-    looseDebitByCategory[e.categoryId] = (looseDebitByCategory[e.categoryId] || 0) + e.amount;
-  });
-  const looseCategories = Object.entries(looseDebitByCategory).sort((a, b) => b[1] - a[1]);
-
   const disponivelParaAvulsos = orcamento.totalIncome + carryover - orcamento.totalFixed - orcamento.totalBudgetCeilings - totalCardBills;
 
   const [summaryTab, setSummaryTab]   = useState<'orcamento' | 'real'>('orcamento');
@@ -88,6 +80,14 @@ export function Dashboard() {
   const displayedFixed   = isReal ? fixed.filter(f => f.status === 'paid') : fixed;
   const displayedIncomes = isReal ? incomes.filter(i => i.status === 'received') : incomes;
   const fixedPaidCount   = fixed.filter(f => f.status === 'paid').length;
+
+  // Sort fixed: pending first (by date), then paid (by date)
+  const sortedFixed = [...displayedFixed].sort((a, b) => {
+    const aPaid = a.status === 'paid' ? 1 : 0;
+    const bPaid = b.status === 'paid' ? 1 : 0;
+    if (aPaid !== bPaid) return aPaid - bPaid;
+    return (a.dueDate ?? '').localeCompare(b.dueDate ?? '') || a.description.localeCompare(b.description);
+  });
 
   return (
     <div className="space-y-5">
@@ -220,35 +220,75 @@ export function Dashboard() {
       </div>
 
       {/* Credit Card Bills */}
-      {billRows.length > 0 && (
+      {(billRows.length > 0 || creditAccounts.length > 0) && (
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Faturas de Cartão</h2>
           <div className="space-y-2">
-            {billRows.map(({ bill, account, expenses: billExp, total }) => {
-              if (!account) return null;
-              const isPaid = bill.status === 'paid';
-              const displayAmount = isPaid && bill.paidAmount ? bill.paidAmount : total;
+            {creditAccounts.map(account => {
+              const billRow = billRows.find(b => b.account?.id === account.id);
+              const isPaid = billRow?.bill.status === 'paid';
+
+              // ── PRÓXIMA FATURA (fatura atual paga) ──────────────────────
+              if (isPaid) {
+                const nextExpenses = getCardExpenses(account.id, nextMonthKey);
+                const nextTotal    = nextExpenses.reduce((s, e) => s + e.amount, 0);
+                const nextBill     = creditCardBills.find(b => b.accountId === account.id && b.month === nextMonthKey);
+                const nextPrevBalance = nextBill?.previousBalance ?? 0;
+                const nextGrandTotal  = nextTotal + nextPrevBalance;
+
+                return (
+                  <Card
+                    key={account.id}
+                    className="p-3 border-dashed border-muted-foreground/30 bg-muted/30"
+                    style={{ borderLeftWidth: 3, borderLeftColor: account.color }}
+                  >
+                    <div className="flex items-center gap-3">
+                      {/* Paid checkmark — clicável para desmarcar */}
+                      <button onClick={() => toggleBillPaid(account.id, monthKey, billRow!.total)} className="shrink-0">
+                        <div className="h-6 w-6 rounded-full bg-income border-income border-2 flex items-center justify-center transition-colors">
+                          <Check className="h-3.5 w-3.5 text-white" />
+                        </div>
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-muted-foreground">
+                          💳 Próxima fatura — {account.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Vence dia {account.dueDay} · {nextExpenses.length} gasto{nextExpenses.length !== 1 ? 's' : ''} no próximo ciclo
+                          {nextPrevBalance > 0 && ` · saldo anterior ${formatCurrency(nextPrevBalance)}`}
+                        </p>
+                      </div>
+                      <p className="text-sm font-bold text-muted-foreground">
+                        {nextGrandTotal > 0 ? formatCurrency(nextGrandTotal) : '—'}
+                      </p>
+                    </div>
+                  </Card>
+                );
+              }
+
+              // ── FATURA PENDENTE (comportamento normal) ───────────────────
+              if (!billRow) return null;
+              const { bill, expenses: billExp, total } = billRow;
+              const displayAmount = bill.paidAmount ? bill.paidAmount : total;
+
               return (
-                <Card key={bill.id}
-                  className={cn('p-3', isPaid ? 'border-income/30 bg-income/5' : 'border-border')}
-                  style={{ borderLeftWidth: 3, borderLeftColor: account.color }}>
+                <Card
+                  key={account.id}
+                  className="p-3 border-border"
+                  style={{ borderLeftWidth: 3, borderLeftColor: account.color }}
+                >
                   <div className="flex items-center gap-3">
                     <button onClick={() => toggleBillPaid(account.id, monthKey, total)} className="shrink-0">
-                      <div className={cn('h-6 w-6 rounded-full border-2 flex items-center justify-center transition-colors',
-                        isPaid ? 'bg-income border-income' : 'border-muted-foreground/40')}>
-                        {isPaid && <Check className="h-3.5 w-3.5 text-white" />}
-                      </div>
+                      <div className="h-6 w-6 rounded-full border-2 border-muted-foreground/40 flex items-center justify-center transition-colors" />
                     </button>
                     <div className="flex-1 min-w-0">
-                      <p className={cn('text-sm font-medium', isPaid && 'line-through opacity-60')}>
-                        💳 Fatura {account.name}
-                      </p>
+                      <p className="text-sm font-medium">💳 Fatura {account.name}</p>
                       <p className="text-xs text-muted-foreground">
                         Vence dia {account.dueDay} · {billExp.length} gasto{billExp.length !== 1 ? 's' : ''}
                         {bill.previousBalance > 0 && ` · saldo anterior ${formatCurrency(bill.previousBalance)}`}
                       </p>
                     </div>
-                    <p className={cn('text-sm font-bold', isPaid ? 'text-income' : 'text-expense')}>
+                    <p className="text-sm font-bold text-expense">
                       {formatCurrency(displayAmount)}
                     </p>
                   </div>
@@ -287,13 +327,13 @@ export function Dashboard() {
                         const v = prompt('Novo teto do orçamento:', String(ceiling));
                         if (v) {
                           const num = parseFloat(v.replace(',', '.'));
-                          if (num > 0) updateFixedExpense(budget.id, { estimatedAmount: num });
+                          if (num > 0) updateMonthlyBudget(budget.id, { amount: num });
                         }
                       }}>
                         <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                       </Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-expense"
-                        onClick={() => deleteFixedExpense(budget.id)}>
+                        onClick={() => deleteMonthlyBudget(budget.id)}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -321,18 +361,16 @@ export function Dashboard() {
           </div>
         ) : (
           <div className="space-y-2">
-            {displayedFixed
-              .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '') || a.description.localeCompare(b.description))
-              .map(item => (
-                <FixedExpenseRow
-                  key={item.id}
-                  item={item}
-                  categories={categories}
-                  onTogglePaid={() => markFixedPaid(item.id)}
-                  onUpdateActual={(amount) => markFixedPaid(item.id, amount)}
-                  onDelete={() => deleteFixedExpense(item.id)}
-                />
-              ))}
+            {sortedFixed.map(item => (
+              <FixedExpenseRow
+                key={item.id}
+                item={item}
+                categories={categories}
+                onTogglePaid={() => markFixedPaid(item.id)}
+                onUpdateActual={(amount) => markFixedPaid(item.id, amount)}
+                onDelete={() => deleteFixedExpense(item.id)}
+              />
+            ))}
             {/* CC recurring subscriptions (paid via bill, no toggle) */}
             {ccTemplateExpenses
               .sort((a, b) => a.description.localeCompare(b.description))
@@ -363,26 +401,6 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* Loose debit expenses (non-budget) */}
-      {looseCategories.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-            Gastos Avulsos por Categoria
-          </h2>
-          <div className="space-y-1">
-            {looseCategories.map(([catId, total]) => {
-              const cat = categories.find(c => c.id === catId);
-              return (
-                <div key={catId} className="flex items-center gap-2 py-1">
-                  <span className="text-lg">{cat?.icon || '📦'}</span>
-                  <span className="text-sm flex-1">{cat?.name || catId}</span>
-                  <span className="text-sm font-medium text-expense">{formatCurrency(total)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Income */}
       <div>
@@ -489,6 +507,11 @@ function FixedExpenseRow({
             </p>
           </div>
           <div className="flex items-center gap-2 mt-0.5">
+            {item.dueDate && (
+              <span style={{ fontSize: '0.68rem' }} className="text-muted-foreground leading-tight">
+                {format(parseISO(item.dueDate), 'dd MMM', { locale: ptBR })} ·
+              </span>
+            )}
             <span className="text-xs text-muted-foreground">Estimado: {formatCurrency(item.estimatedAmount)}</span>
             {diff !== null && diff !== 0 && (
               <span className={cn('text-xs font-medium', diff > 0 ? 'text-expense' : 'text-income')}>

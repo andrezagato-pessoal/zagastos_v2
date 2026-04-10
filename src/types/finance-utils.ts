@@ -34,14 +34,24 @@ export function getBillMonth(purchaseDate: string, closingDay: number): string {
   }
 }
 
-// Returns the bill month for an expense given all accounts
+// Returns the bill month for an expense given all accounts.
+// "Bill month" = the month the payment actually leaves your account (due date month).
+// If dueDay < closingDay the due date falls in the month AFTER the billing cycle
+// (e.g. Nu Bia: closing=24, due=1 → March purchases → due Apr 1 → April).
+// If dueDay >= closingDay the due date is in the same month as the billing cycle
+// (e.g. Nu André: closing=16, due=23 → March purchases → due Mar 23 → March).
 export function getExpenseBillMonth(
   expense: ExpenseEntry,
   accounts: Account[],
 ): string {
   const account = accounts.find(a => a.id === expense.accountId);
   if (account?.type === 'credit' && account.closingDay != null) {
-    return getBillMonth(expense.date, account.closingDay);
+    const billCycleMonth = getBillMonth(expense.date, account.closingDay);
+    if (account.dueDay != null && account.dueDay < account.closingDay) {
+      // Due date is in the following month — shift forward
+      return format(addMonths(parseISO(billCycleMonth + '-01'), 1), 'yyyy-MM');
+    }
+    return billCycleMonth;
   }
   // Debit/cash: bill month = purchase month
   return format(parseISO(expense.date), 'yyyy-MM');
