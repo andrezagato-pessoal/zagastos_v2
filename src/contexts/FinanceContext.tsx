@@ -196,6 +196,22 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
   const monthKey = format(currentMonth, 'yyyy-MM');
 
+  // PostgREST returns at most 1000 rows per request — page through large tables.
+  const fetchAll = async (table: string): Promise<{ data: unknown[] | null }> => {
+    const PAGE = 1000;
+    const all: unknown[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from(table as 'expense_entries')
+        .select('*')
+        .order('id')
+        .range(from, from + PAGE - 1);
+      if (error) return { data: null };
+      all.push(...(data ?? []));
+      if (!data || data.length < PAGE) return { data: all };
+    }
+  };
+
   // ----------------------------------------------------------
   // Initial data load
   // ----------------------------------------------------------
@@ -208,12 +224,12 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         supabase.from('accounts').select('*').order('sort_order'),
         supabase.from('categories').select('*').order('name'),
         supabase.from('templates').select('*').order('sort_order'),
-        supabase.from('fixed_expenses').select('*'),
-        supabase.from('income_entries').select('*'),
-        supabase.from('monthly_budgets').select('*'),
-        supabase.from('expense_entries').select('*'),
-        supabase.from('credit_card_bills').select('*'),
-        supabase.from('transfers').select('*'),
+        fetchAll('fixed_expenses'),
+        fetchAll('income_entries'),
+        fetchAll('monthly_budgets'),
+        fetchAll('expense_entries'),
+        fetchAll('credit_card_bills'),
+        fetchAll('transfers'),
         supabase.from('app_settings').select('*').eq('id', 1).single(),
       ]);
 
@@ -238,7 +254,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
   // ----------------------------------------------------------
   useEffect(() => {
     const reload = (table: string, setter: (data: unknown[]) => void, mapper: (r: unknown) => unknown) => () => {
-      supabase.from(table as 'accounts').select('*').then(({ data }) => {
+      fetchAll(table).then(({ data }) => {
         if (data) setter(data.map(mapper));
       });
     };

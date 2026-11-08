@@ -6,3 +6,7 @@ dist/
 *.log
 .DS_Store
 .vercel
+
+# extratos bancarios (dados pessoais)
+documentos/
+zagastos-*.csv
